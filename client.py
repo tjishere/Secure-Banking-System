@@ -5,6 +5,8 @@ from Crypto.Random import get_random_bytes, random
 from Crypto.Hash import SHA256
 from Crypto.Signature import pss
 import socket
+from Crypto.Protocol.KDF import PBKDF2
+import hmac
 
 localhost = '127.0.0.1'
 portNum = 30000
@@ -12,6 +14,7 @@ portNum = 30000
 def generate_nonce(length=8):
     return ''.join(str(random.randint(0,9)) for i in range(length))
 
+#Function generates asymmetric RSA keys
 def generate_rsa_keys():
     key = RSA.generate(2048)
     private_key = key.export_key()
@@ -39,7 +42,13 @@ def verify(message, signature, public_key):
         return True  # The signature is valid.
     except (ValueError, TypeError):
         return False  # The signature is not valid.
+    
+def gen_mac(keyMAC,data):
+    return hmac.new(keyMAC, data, SHA256).digest()
 
+def verify_mac(keyMAC,data,macSent):
+    return hmac.compare_digest(gen_mac(keyMAC,data), macSent)
+    
 
 cli_private_key, cli_public_key = generate_rsa_keys()
 # For responder B
@@ -52,6 +61,7 @@ def start_client(host = localhost, port = portNum):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
                 server.connect((host, port))
                 # Initial key distribution of public keys of server and client
+
                 server.send(rsa_public_key_a.exportKey())
                 bank_public_key = server.recv(1024)
                 rsa_public_key_b = RSA.import_key(bank_public_key)
@@ -96,6 +106,20 @@ def start_client(host = localhost, port = portNum):
                 print(f"Encrypted message4: {encrypted_message4}")
                 master_key = decryptor.decrypt(encrypted_message4)
                 print(f"Master key: {master_key}")
+                
+                """
+                KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
+                Master Key acts as both the Password and the Salt
+                Both Client and Server will generate the Same Symmetric Key
+                (or at least they should)
+                Use the gen_mac function to generate MAC
+                Use the cipher to encrypt and decrypt messages
+                """
+                keys = PBKDF2(master_key, master_key, 32, count=1000000, hmac_hash_module=SHA256)
+                keyDE = keys[:16]
+                keyMAC = keys[16:]
+                cipher = AES.new(keyDE, AES.MODE_EAX)
+                
 
     except KeyboardInterrupt:
         print("Client is closing.")

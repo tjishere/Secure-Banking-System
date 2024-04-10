@@ -6,9 +6,11 @@ from Crypto.Hash import SHA256
 from Crypto.Signature import pss
 import socket
 import threading
+from Crypto.Protocol.KDF import PBKDF2
+import hmac
 
 localhost = '127.0.0.1'
-portNum = 30000
+portNum = 30000 
 
 class Client:
     def __init__(self, username, password, balance=None):
@@ -30,16 +32,22 @@ class Client:
     def bal_inquiry(self):
         return self.balance
 
-# Using Diffie-Hellman Key Exchange for initial authentication
-
 def generate_nonce(length=8):
     return ''.join(str(random.randint(0,9)) for i in range(length))
 
+#Function generates asymmetric RSA keys
 def generate_rsa_keys():
     key = RSA.generate(2048)
     private_key = key.export_key()
     public_key = key.publickey().export_key()
     return private_key, public_key
+
+#Function to Generate MAC using MAC key + msg
+def gen_mac(keyMAC, msg):
+    return hmac.new(keyMAC, msg, SHA256).digest()
+#Function to Generate MAC using MAC key + msg
+def verify_mac(keyMAC, msg, macSent):
+    return hmac.compare_digest(gen_mac(keyMAC, msg), macSent)
 
 # Generate a master key
 def generate_key():
@@ -82,6 +90,7 @@ def client_handler(connection, address):
     try:
         while True:
             # Initial key distribution of public keys of server and client
+
             connection.send(rsa_public_key_b.exportKey())
             cliA_public_key = connection.recv(1024)
             rsa_public_key_a = RSA.import_key(cliA_public_key)
@@ -133,6 +142,20 @@ def client_handler(connection, address):
             encrypted_master_key = encryptor.encrypt(master_key)
             connection.send(encrypted_master_key)
             print(f"Sent Master key: {master_key}")
+
+            """
+            KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
+            Master Key acts as both the Password and the Salt
+            Both Client and Server will generate the Same Symmetric Key
+            (or at least they should)
+            Use the gen_mac function to generate MAC
+            Use the cipher to encrypt and decrypt messages
+            """
+            keys = PBKDF2(master_key, master_key, 32, count=1000000, hmac_hash_module=SHA256)
+            keyDE = keys[:16]
+            keyMAC = keys[16:]
+            cipher = AES.new(keyDE, AES.MODE_EAX)
+            
             
     except Exception as e:
         print(f"Error with {address}: {e}")
