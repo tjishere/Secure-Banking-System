@@ -115,7 +115,7 @@ def start_client(host = localhost, port = portNum):
                 Use the gen_mac function to generate MAC
                 Use the cipher to encrypt and decrypt messages
                 """
-                keys = PBKDF2(master_key, master_key, 32, count=1000000, hmac_hash_module=SHA256)
+                keys = PBKDF2("master_key", master_key, 32, count=1000000, hmac_hash_module=SHA256)
                 keyDE = keys[:16]
                 keyMAC = keys[16:]
                 cipher = AES.new(keyDE, AES.MODE_EAX)
