@@ -6,7 +6,7 @@ from Crypto.Hash import SHA256
 from Crypto.Signature import pss
 import socket
 import threading
-from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Protocol.KDF import HKDF
 import hmac
 
 localhost = '127.0.0.1'
@@ -151,10 +151,12 @@ def client_handler(connection, address):
             Use the gen_mac function to generate MAC
             Use the cipher to encrypt and decrypt messages
             """
-            keys = PBKDF2("master_key", master_key, 32, count=1000000, hmac_hash_module=SHA256)
+            keys = HKDF(master_key, 32, b"2024",SHA256)
             keyDE = keys[:16]
             keyMAC = keys[16:]
             cipher = AES.new(keyDE, AES.MODE_EAX)
+            print(f"Keys: {keys}")
+
             
             
     except Exception as e:
