@@ -7,9 +7,12 @@ from Crypto.Signature import pss
 import socket
 from Crypto.Protocol.KDF import HKDF
 import hmac
+import logging
+
 
 localhost = '127.0.0.1'
 portNum = 30000
+logging.basicConfig(filename='client_audit.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 def generate_nonce(length=8):
     return ''.join(str(random.randint(0,9)) for i in range(length))
@@ -106,6 +109,33 @@ def start_client(host = localhost, port = portNum):
                 print(f"Encrypted message4: {encrypted_message4}")
                 master_key = decryptor.decrypt(encrypted_message4)
                 print(f"Master key: {master_key}")
+
+                #6) Test Deposit, withdraw, balance
+                x = input("What would you like to do: ")
+                if x == "deposit":
+                    y = input("Amount: ")
+                    server.send(x.encode("UTF-8"))
+                    server.send(y.encode("UTF-8"))
+                elif x == "withdraw":
+                    y = input("Amount: ")
+                    server.send(x.encode("UTF-8"))
+                    server.send(y.encode("UTF-8"))
+                elif x == "balance":
+                    server.send(x.encode("UTF-8"))
+                    z = server.recv(1024)
+                    #encrypted_message5 = server.recv(1024)
+                    #print(f"Encrypted message5: {encrypted_message5}")
+                    #bal = decryptor.decrypt(encrypted_message5)
+                    print(f"balance: {z}")
+                 
+                else:
+                    print("Invalid action entered")
+  
+                
+                ack = server.recv(1024).decode("UTF-8")
+                if ack != "ACK":
+                    print("Error: No ACK receivedß")
+                
                 
                 """
                 KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
@@ -120,6 +150,8 @@ def start_client(host = localhost, port = portNum):
                 keyMAC = keys[16:]
                 cipher = AES.new(keyDE, AES.MODE_EAX)
                 print(f"Keys: {keys}")
+
+		
                 
 
     except KeyboardInterrupt:

@@ -8,28 +8,41 @@ import socket
 import threading
 from Crypto.Protocol.KDF import HKDF
 import hmac
+import logging
+import os
 
 localhost = '127.0.0.1'
 portNum = 30000 
 
+logging.basicConfig(filename='server_audit.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 class Client:
-    def __init__(self, username, password, balance=None):
+    def __init__(self, username, password, balance= 0):
         self.username = username
         self.password = password
         self.balance = balance
-
+        
+	
     def __str__(self):
         return f"{self.username}, balance: {self.balance}"
     
     def deposit(self, deposit_amount):
+        print("Next Step")
+        
         self.balance += deposit_amount
+        logging.info(f"Deposit - Username: {self.username}, Amount: {deposit_amount}, Balance: {self.balance}")
+        with open("audit_log.txt", "a") as file:
+            file.write(f"DEPOSIT: +${deposit_amount}\n")
         return self.balance
 
     def withdraw(self, withdraw_amount):
         self.balance -= withdraw_amount
+        logging.info(f"Withdrawal - Username: {self.username}, Amount: {withdraw_amount}, Balance: {self.balance}")
+        with open("audit_log.txt", "a") as file:
+            file.write(f"WITHDRAW: -${withdraw_amount}\n")
         return self.balance
 
     def bal_inquiry(self):
+        logging.info(f"Balance Inquiry - Username: {self.username}, Balance: {self.balance}")
         return self.balance
 
 def generate_nonce(length=8):
@@ -74,6 +87,7 @@ def verify(message, signature, public_key):
         return True  # The signature is valid.
     except (ValueError, TypeError):
         return False  # The signature is not valid.
+
 
 kdc_private_key, kdc_public_key = generate_rsa_keys()
 rsa_public_key_b = RSA.importKey(kdc_public_key)
@@ -142,6 +156,47 @@ def client_handler(connection, address):
             encrypted_master_key = encryptor.encrypt(master_key)
             connection.send(encrypted_master_key)
             print(f"Sent Master key: {master_key}")
+
+            # 6) Receive d,w,b
+            recv_request = connection.recv(1024)
+            request = recv_request.decode("UTF-8")
+           
+            
+
+            if request == "deposit":
+                recv_amount = connection.recv(1024)
+                amount = recv_amount.decode("UTF-8")
+                amount = float(amount)
+                for client in clients:
+                    if client.username == cli_user:
+                        client.deposit(amount)
+                        break 
+            elif request == "withdraw":
+                 recv_amount = connection.recv(1024)
+                 amount = recv_amount.decode("UTF-8")
+                 amount = float(amount)
+                 for client in clients:
+                    if client.username == cli_user:
+                        client.withdraw(amount)
+                        break 
+            elif request == "balance":
+                print("before")
+                for client in clients:
+                    if client.username == cli_user:
+                        balance = client.bal_inquiry()
+                        balance_str = str(balance)
+                        balance_b = balance_str.encode("utf-8")
+                        connection.send(balance_b)
+                        print(f"Sent balance: {balance_b}")
+                        break 
+                print("Step")
+                
+            else:
+                connection.send("Invalid request.".encode())
+            print("Next Step")
+            connection.send("ACK".encode("UTF-8"))
+            
+
 
             """
             KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
