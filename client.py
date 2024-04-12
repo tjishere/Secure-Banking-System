@@ -46,12 +46,21 @@ def verify(message, signature, public_key):
     except (ValueError, TypeError):
         return False  # The signature is not valid.
     
-def gen_mac(keyMAC,data):
-    return hmac.new(keyMAC, data, SHA256).digest()
+def gen_mac(keyMAC,message):
+    return hmac.new(keyMAC, message, SHA256).digest()
 
-def verify_mac(keyMAC,data,macSent):
-    return hmac.compare_digest(gen_mac(keyMAC,data), macSent)
-    
+def verify_mac(keyMAC, message, macSent):
+    return hmac.compare_digest(gen_mac(keyMAC,message), macSent)
+
+def encryptMSG(msg, AES, RSA):
+    out = msg.encode("UTF-8")
+    out = AES.encrypt(pad(out, AES.block_size))
+    return RSA.encrypt(out)
+
+def decryptMSG(msg, AES, RSA):
+    msg = RSA.decrypt(msg)
+    msg = unpad(AES.decrypt(msg), AES.block_size)
+    return msg.decode("UTF-8")
 
 cli_private_key, cli_public_key = generate_rsa_keys()
 # For responder B
@@ -110,33 +119,6 @@ def start_client(host = localhost, port = portNum):
                 master_key = decryptor.decrypt(encrypted_message4)
                 print(f"Master key: {master_key}")
 
-                #6) Test Deposit, withdraw, balance
-                x = input("What would you like to do: ")
-                if x == "deposit":
-                    y = input("Amount: ")
-                    server.send(x.encode("UTF-8"))
-                    server.send(y.encode("UTF-8"))
-                elif x == "withdraw":
-                    y = input("Amount: ")
-                    server.send(x.encode("UTF-8"))
-                    server.send(y.encode("UTF-8"))
-                elif x == "balance":
-                    server.send(x.encode("UTF-8"))
-                    z = server.recv(1024)
-                    #encrypted_message5 = server.recv(1024)
-                    #print(f"Encrypted message5: {encrypted_message5}")
-                    #bal = decryptor.decrypt(encrypted_message5)
-                    print(f"balance: {z}")
-                 
-                else:
-                    print("Invalid action entered")
-  
-                
-                ack = server.recv(1024).decode("UTF-8")
-                if ack != "ACK":
-                    print("Error: No ACK receivedß")
-                
-                
                 """
                 KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
                 Master Key acts as both the Password and the Salt
@@ -148,10 +130,49 @@ def start_client(host = localhost, port = portNum):
                 keys = HKDF(master_key, 32, b"2024", hashmod=SHA256)
                 keyDE = keys[:16]
                 keyMAC = keys[16:]
-                cipher = AES.new(keyDE, AES.MODE_EAX)
+                cipher = AES.new(keyDE, AES.MODE_ECB)
                 print(f"Keys: {keys}")
 
-		
+                #6) Test Deposit, withdraw, balance
+                while True:
+                    x = input("What would you like to do: ")
+                    if x == "deposit":
+                        y = input("Amount: ")
+                        z = float(y)
+                        if (z > 0):
+                            server.send(encryptMSG(x, cipher, encryptor))
+                            server.send(encryptMSG(y, cipher, encryptor))
+                        else:
+                            z = server.send(encryptMSG(y, cipher, encryptor))
+                            print(f"Error: Invalid Amount")
+                            z = server.recv(1024)
+                    elif x == "withdraw":
+                        y = input("Amount: ")
+                        z = float(y)
+                        if (z > 0):
+                            server.send(encryptMSG(x, cipher, encryptor))
+                            server.send(encryptMSG(y, cipher, encryptor))
+                        else:
+                            z = server.send(encryptMSG(y, cipher, encryptor))
+                            print(f"Error: Invalid Amount")
+                            z = server.recv(1024)
+                    elif x == "balance":
+                        server.send(encryptMSG(x, cipher, encryptor))
+                        z = server.recv(1024)
+                        z = decryptMSG(z, cipher, decryptor)
+                        #encrypted_message5 = server.recv(1024)
+                        #print(f"Encrypted message5: {encrypted_message5}")
+                        #bal = decryptor.decrypt(encrypted_message5)
+                        print(f"balance: {z}")
+                    else:
+                        server.send(x.encode("UTF-8"))
+                        z = server.recv(1024)
+                        print(f"Error: {str(z,encoding='utf-8')}")
+    
+                    ack = server.recv(1024).decode("UTF-8")
+                    if ack != "ACK":
+                        print("Error: No ACK receivedß")
+                        break
                 
 
     except KeyboardInterrupt:

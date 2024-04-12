@@ -1,6 +1,6 @@
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.PublicKey import RSA
-from Crypto.Util.Padding import pad
+from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes, random
 from Crypto.Hash import SHA256
 from Crypto.Signature import pss
@@ -10,6 +10,7 @@ from Crypto.Protocol.KDF import HKDF
 import hmac
 import logging
 import os
+from datetime import datetime
 
 localhost = '127.0.0.1'
 portNum = 30000 
@@ -26,23 +27,29 @@ class Client:
         return f"{self.username}, balance: {self.balance}"
     
     def deposit(self, deposit_amount):
-        print("Next Step")
-        
+        now = datetime.now()
+        current_time = now.strftime("%H:%M:%S")
         self.balance += deposit_amount
         logging.info(f"Deposit - Username: {self.username}, Amount: {deposit_amount}, Balance: {self.balance}")
         with open("audit_log.txt", "a") as file:
-            file.write(f"DEPOSIT: +${deposit_amount}\n")
+            file.write(f"USERNAME: {self.username}, ACTION: Deposit, TIME: {current_time}\n")
         return self.balance
 
     def withdraw(self, withdraw_amount):
+        now = datetime.now()
+        current_time = now.strftime("%H:%M:%S")
         self.balance -= withdraw_amount
         logging.info(f"Withdrawal - Username: {self.username}, Amount: {withdraw_amount}, Balance: {self.balance}")
         with open("audit_log.txt", "a") as file:
-            file.write(f"WITHDRAW: -${withdraw_amount}\n")
+            file.write(f"USERNAME: {self.username}, ACTION: Withdraw, TIME: {current_time}\n")
         return self.balance
 
     def bal_inquiry(self):
+        now = datetime.now()
+        current_time = now.strftime("%H:%M:%S")
         logging.info(f"Balance Inquiry - Username: {self.username}, Balance: {self.balance}")
+        with open("audit_log.txt", "a") as file:
+            file.write(f"USERNAME: {self.username}, ACTION: Balance Inquiry, TIME: {current_time}\n")
         return self.balance
 
 def generate_nonce(length=8):
@@ -88,6 +95,15 @@ def verify(message, signature, public_key):
     except (ValueError, TypeError):
         return False  # The signature is not valid.
 
+def encryptMSG(msg, AES, RSA):
+    out = msg.encode("UTF-8")
+    out = AES.encrypt(pad(out, AES.block_size))
+    return RSA.encrypt(out)
+
+def decryptMSG(msg, AES, RSA):
+    msg = RSA.decrypt(msg)
+    msg = unpad(AES.decrypt(msg), AES.block_size)
+    return msg.decode("UTF-8")
 
 kdc_private_key, kdc_public_key = generate_rsa_keys()
 rsa_public_key_b = RSA.importKey(kdc_public_key)
@@ -157,47 +173,6 @@ def client_handler(connection, address):
             connection.send(encrypted_master_key)
             print(f"Sent Master key: {master_key}")
 
-            # 6) Receive d,w,b
-            recv_request = connection.recv(1024)
-            request = recv_request.decode("UTF-8")
-           
-            
-
-            if request == "deposit":
-                recv_amount = connection.recv(1024)
-                amount = recv_amount.decode("UTF-8")
-                amount = float(amount)
-                for client in clients:
-                    if client.username == cli_user:
-                        client.deposit(amount)
-                        break 
-            elif request == "withdraw":
-                 recv_amount = connection.recv(1024)
-                 amount = recv_amount.decode("UTF-8")
-                 amount = float(amount)
-                 for client in clients:
-                    if client.username == cli_user:
-                        client.withdraw(amount)
-                        break 
-            elif request == "balance":
-                print("before")
-                for client in clients:
-                    if client.username == cli_user:
-                        balance = client.bal_inquiry()
-                        balance_str = str(balance)
-                        balance_b = balance_str.encode("utf-8")
-                        connection.send(balance_b)
-                        print(f"Sent balance: {balance_b}")
-                        break 
-                print("Step")
-                
-            else:
-                connection.send("Invalid request.".encode())
-            print("Next Step")
-            connection.send("ACK".encode("UTF-8"))
-            
-
-
             """
             KDF to turn Master Key into Two AES keys (DataEncryption Key and MAC key)
             Master Key acts as both the Password and the Salt
@@ -209,9 +184,50 @@ def client_handler(connection, address):
             keys = HKDF(master_key, 32, b"2024",SHA256)
             keyDE = keys[:16]
             keyMAC = keys[16:]
-            cipher = AES.new(keyDE, AES.MODE_EAX)
+            cipher = AES.new(keyDE, AES.MODE_ECB)
             print(f"Keys: {keys}")
+        
+            while True:
+                # 6) Receive d,w,b
+                recv_request = connection.recv(1024)
+                request = decryptMSG(recv_request, cipher, decryptor)
 
+                if request == "deposit":
+                    recv_amount = connection.recv(1024)
+                    amount = decryptMSG(recv_amount, cipher, decryptor)
+                    amount = float(amount)
+                    for client in clients:
+                        if client.username == cli_user:
+                            client.deposit(amount)
+                            break 
+                elif request == "withdraw":
+                    recv_amount = connection.recv(1024)
+                    amount = decryptMSG(recv_amount, cipher, decryptor)
+                    amount = float(amount)
+                    for client in clients:
+                        if client.username == cli_user:
+                            client.withdraw(amount)
+                            break 
+                elif request == "balance":
+                    print("before")
+                    for client in clients:
+                        if client.username == cli_user:
+                            balance = client.bal_inquiry()
+                            balance_str = str(balance)
+                            balance_b = encryptMSG(balance_str, cipher, encryptor)
+                            connection.send(balance_b)
+                            print(f"Sent balance: {balance_b}")
+                            break 
+                    print("Step")
+                elif request == "quit":
+                    break
+                    
+                else:
+                    connection.send("Invalid request.".encode())
+
+                print("Next Step")
+                connection.send("ACK".encode("UTF-8"))
+            break
             
             
     except Exception as e:
