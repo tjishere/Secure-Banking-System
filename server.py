@@ -199,6 +199,7 @@ def client_handler(connection, address):
                     for client in clients:
                         if client.username == cli_user:
                             client.deposit(amount)
+                            print("Deposited")
                             break 
                 elif request == "withdraw":
                     recv_amount = connection.recv(1024)
@@ -207,6 +208,7 @@ def client_handler(connection, address):
                     for client in clients:
                         if client.username == cli_user:
                             client.withdraw(amount)
+                            print("Withdrawn")
                             break 
                 elif request == "balance":
                     print("before")
@@ -218,7 +220,7 @@ def client_handler(connection, address):
                             connection.send(balance_b)
                             print(f"Sent balance: {balance_b}")
                             break 
-                    print("Step")
+                    print("Balance checked")
                 elif request == "quit":
                     break
                     
